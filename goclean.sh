@@ -9,21 +9,35 @@
 # 7. race detector (http://blog.golang.org/race-detector)
 # 8. test coverage (http://blog.golang.org/cover)
 #
-# gometalint (github.com/alecthomas/gometalinter) is used to run each each
-# static checker.
 
 set -ex
 
 # Automatic checks
-test -z "$(gometalinter --disable-all \
---enable=gofmt \
---enable=goimports \
---enable=golint \
---enable=vet \
---enable=gosimple \
---enable=unconvert \
---deadline=120s ./... | grep -v 'ExampleNew' 2>&1 | tee /dev/stderr)"
-env GORACE="halt_on_error=1" go test -race ./...
+for i in $(find . -name go.mod -type f -print); do
+  module=$(dirname ${i})
+  echo "==> ${module}"
+
+  MODNAME=$(echo $module | sed -E -e "s/^$ROOTPATHPATTERN//" \
+    -e 's,^/,,' -e 's,/v[0-9]+$,,')
+  if [ -z "$MODNAME" ]; then
+    MODNAME=.
+  fi
+
+  # run tests
+  (cd $MODNAME && env GORACE=halt_on_error=1 go test -race)
+
+  # check linters
+  (cd $MODNAME && \
+    go mod download && \
+    golangci-lint run --deadline=10m --disable-all \
+      --enable=gofmt \
+      --enable=goimports \
+      --enable=golint \
+      --enable=govet \
+      --enable=gosimple \
+      --enable=unconvert
+  )
+done
 
 # Run test coverage on each subdirectories and merge the coverage profile.
 
@@ -42,7 +56,3 @@ fi
 done
 
 go tool cover -func profile.cov
-
-# To submit the test coverage result to coveralls.io,
-# use goveralls (https://github.com/mattn/goveralls)
-# goveralls -coverprofile=profile.cov -service=travis-ci
